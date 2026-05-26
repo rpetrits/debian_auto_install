@@ -1,0 +1,52 @@
+#!/bin/sh
+
+# Dynamisch das aktuelle Verzeichnis nutzen, in dem das Skript gestartet wurde
+WORK_DIR=$(pwd)
+ISO_NAME="debian-13.5.0-amd64-netinst.iso"
+ISO_URL="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/$ISO_NAME"
+OUTPUT_ISO="debian-preseed.iso"
+
+echo "================================================="
+echo " Start: Automatische Erstellung des Preseed-ISOs"
+echo "================================================="
+
+# 1. Prüfen, ob das originale Debian-ISO existiert, ansonsten herunterladen
+if [ ! -f "$ISO_NAME" ]; then
+    echo "[1/4] Originales Debian-ISO nicht gefunden. Starte Download..."
+    curl -L -O "$ISO_URL" || { echo "FEHLER: Download fehlgeschlagen!"; exit 1; }
+else
+    echo "[1/4] Originales Debian-ISO ist bereits vorhanden. Überspringe Download."
+fi
+
+# 2. Die originale initrd.gz aus dem ISO extrahieren (als Input für inject.py)
+echo "[2/4] Extrahiere originale initrd.gz aus dem ISO..."
+xorriso -osirrox on -indev "$ISO_NAME" -extract /install.amd/initrd.gz ./initrd.gz || { echo "FEHLER: Extraktion fehlgeschlagen!"; exit 1; }
+
+# 3. Preseed-Konfiguration in die RAM-Disk (initrd) injizieren
+echo "[3/4] Führe inject.py aus..."
+if [ -f "inject.py" ]; then
+    python3 inject.py || { echo "FEHLER: inject.py wurde mit Fehlern abgebrochen!"; exit 1; }
+else
+    echo "FEHLER: 'inject.py' wurde im aktuellen Verzeichnis nicht gefunden!"
+    exit 1
+fi
+
+# 4. Altes Ausgabe-ISO löschen, falls vorhanden, und neu bauen
+echo "[4/4] Erstelle das modifizierte ISO mit xorriso..."
+rm -f "$OUTPUT_ISO"
+
+xorriso \
+  -indev "$ISO_NAME" \
+  -outdev "$OUTPUT_ISO" \
+  -overwrite on \
+  -boot_image any replay \
+  -map initrd_master.gz /install.amd/initrd.gz || { echo "FEHLER: xorriso konnte das ISO nicht bauen!"; exit 1; }
+
+# Aufräumen: Beide temporären initrd-Dateien wieder löschen
+rm -f initrd.gz
+rm -f initrd_master.gz
+
+echo "================================================="
+echo " FERTIG! Dein Image liegt bereit unter:"
+echo " $WORK_DIR/$OUTPUT_ISO"
+echo "================================================="
