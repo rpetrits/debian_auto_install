@@ -18,13 +18,15 @@ else
     echo "[1/4] Originales Debian-ISO ist bereits vorhanden. Überspringe Download."
 fi
 
-# 2. Benötigte Dateien aus dem ISO extrahieren
+# 2. Benötigte Dateien aus dem ISO extrahieren und beschreibbar machen
 echo "[2/4] Extrahiere initrd.gz, grub.cfg und isolinux.cfg aus dem ISO..."
 xorriso -osirrox on -indev "$ISO_NAME" \
     -extract /install.amd/initrd.gz ./initrd.gz \
     -extract /boot/grub/grub.cfg ./grub.cfg \
     -extract /isolinux/isolinux.cfg ./isolinux.cfg \
     || { echo "FEHLER: Extraktion fehlgeschlagen!"; exit 1; }
+
+chmod +w initrd.gz grub.cfg isolinux.cfg
 
 # 3. inject.py ausführen: preseed.cfg injizieren + grub.cfg + isolinux.cfg patchen
 echo "[3/4] Führe inject.py aus..."
