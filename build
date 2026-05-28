@@ -5,7 +5,6 @@ WORK_DIR=$(pwd)
 ISO_NAME="debian-13.5.0-amd64-netinst.iso"
 ISO_URL="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/$ISO_NAME"
 OUTPUT_ISO="debian-preseed.iso"
-EXTRACT_DIR="iso_extract"
 
 echo "================================================="
 echo " Start: Automatische Erstellung des Preseed-ISOs"
@@ -13,61 +12,31 @@ echo "================================================="
 
 # 1. Prüfen, ob das originale Debian-ISO existiert, ansonsten herunterladen
 if [ ! -f "$ISO_NAME" ]; then
-    echo "[1/5] Originales Debian-ISO nicht gefunden. Starte Download..."
+    echo "[1/4] Originales Debian-ISO nicht gefunden. Starte Download..."
     curl -L -O "$ISO_URL" || { echo "FEHLER: Download fehlgeschlagen!"; exit 1; }
 else
-    echo "[1/5] Originales Debian-ISO ist bereits vorhanden. Überspringe Download."
+    echo "[1/4] Originales Debian-ISO ist bereits vorhanden. Überspringe Download."
 fi
 
-# 2. ISO-Inhalt vollständig extrahieren
-echo "[2/5] Extrahiere ISO-Inhalt nach '$EXTRACT_DIR'..."
-rm -rf "$EXTRACT_DIR"
-xorriso -osirrox on -indev "$ISO_NAME" -extract / "$EXTRACT_DIR/" || { echo "FEHLER: ISO-Extraktion fehlgeschlagen!"; exit 1; }
+# 2. Benötigte Dateien aus dem ISO extrahieren
+echo "[2/4] Extrahiere initrd.gz, grub.cfg und isolinux.cfg aus dem ISO..."
+xorriso -osirrox on -indev "$ISO_NAME" \
+    -extract /install.amd/initrd.gz ./initrd.gz \
+    -extract /boot/grub/grub.cfg ./grub.cfg \
+    -extract /isolinux/isolinux.cfg ./isolinux.cfg \
+    || { echo "FEHLER: Extraktion fehlgeschlagen!"; exit 1; }
 
-# Schreibrechte setzen, damit wir Dateien ändern können
-chmod -R +w "$EXTRACT_DIR"
-
-# 3. Preseed-Konfiguration in die RAM-Disk (initrd) injizieren
-echo "[3/5] Injiziere preseed.cfg in initrd..."
-if [ ! -f "preseed.cfg" ]; then
-    echo "FEHLER: 'preseed.cfg' wurde im aktuellen Verzeichnis nicht gefunden!"
+# 3. inject.py ausführen: preseed.cfg injizieren + grub.cfg + isolinux.cfg patchen
+echo "[3/4] Führe inject.py aus..."
+if [ -f "inject.py" ]; then
+    python3 inject.py || { echo "FEHLER: inject.py wurde mit Fehlern abgebrochen!"; exit 1; }
+else
+    echo "FEHLER: 'inject.py' wurde im aktuellen Verzeichnis nicht gefunden!"
     exit 1
 fi
 
-gunzip "$EXTRACT_DIR/install.amd/initrd.gz" || { echo "FEHLER: gunzip fehlgeschlagen!"; exit 1; }
-echo "preseed.cfg" | cpio -H newc -o -A -F "$EXTRACT_DIR/install.amd/initrd" || { echo "FEHLER: cpio fehlgeschlagen!"; exit 1; }
-gzip "$EXTRACT_DIR/install.amd/initrd" || { echo "FEHLER: gzip fehlgeschlagen!"; exit 1; }
-
-# 4. Boot-Konfiguration anpassen: automatisch "Automated install" starten
-echo "[4/5] Passe Boot-Konfiguration an..."
-
-# UEFI: grub.cfg anpassen
-GRUB_CFG="$EXTRACT_DIR/boot/grub/grub.cfg"
-if [ -f "$GRUB_CFG" ]; then
-    # Timeout auf 0 setzen (kein Warten)
-    sed -i 's/set timeout=.*/set timeout=0/' "$GRUB_CFG"
-    # Standard-Eintrag auf "Automated install" setzen
-    # Im Debian netinst ISO ist der Automated install Eintrag typischerweise Eintrag 4 (0-basiert)
-    sed -i 's/set default=.*/set default=4/' "$GRUB_CFG"
-    # Keyboard- und Locale-Parameter zum "Automated install"-Eintrag hinzufügen
-    sed -i '/Automated install/{n; s|vmlinuz.*|& auto=true priority=critical locale=de_AT.UTF-8 keymap=at|;}' "$GRUB_CFG"
-    echo "    -> grub.cfg angepasst."
-else
-    echo "    WARNUNG: grub.cfg nicht gefunden unter $GRUB_CFG"
-fi
-
-# BIOS: isolinux.cfg anpassen
-ISOLINUX_CFG="$EXTRACT_DIR/isolinux/isolinux.cfg"
-if [ -f "$ISOLINUX_CFG" ]; then
-    sed -i 's/^timeout.*/timeout 0/' "$ISOLINUX_CFG"
-    sed -i 's/^default.*/default auto/' "$ISOLINUX_CFG"
-    echo "    -> isolinux.cfg angepasst."
-else
-    echo "    WARNUNG: isolinux.cfg nicht gefunden unter $ISOLINUX_CFG"
-fi
-
-# 5. Neues ISO bauen
-echo "[5/5] Erstelle das modifizierte ISO mit xorriso..."
+# 4. Altes Ausgabe-ISO löschen, falls vorhanden, und neu bauen
+echo "[4/4] Erstelle das modifizierte ISO mit xorriso..."
 rm -f "$OUTPUT_ISO"
 
 xorriso \
@@ -75,13 +44,13 @@ xorriso \
   -outdev "$OUTPUT_ISO" \
   -overwrite on \
   -boot_image any replay \
-  -map "$EXTRACT_DIR/install.amd/initrd.gz" /install.amd/initrd.gz \
-  -map "$EXTRACT_DIR/boot/grub/grub.cfg" /boot/grub/grub.cfg \
-  -map "$EXTRACT_DIR/isolinux/isolinux.cfg" /isolinux/isolinux.cfg \
+  -map initrd_master.gz /install.amd/initrd.gz \
+  -map grub.cfg /boot/grub/grub.cfg \
+  -map isolinux.cfg /isolinux/isolinux.cfg \
   || { echo "FEHLER: xorriso konnte das ISO nicht bauen!"; exit 1; }
 
-# Aufräumen
-rm -rf "$EXTRACT_DIR"
+# Aufräumen: Temporäre Dateien löschen
+rm -f initrd.gz initrd_master.gz grub.cfg isolinux.cfg
 
 echo "================================================="
 echo " FERTIG! Dein Image liegt bereit unter:"
