@@ -20,6 +20,7 @@ Das Repository enthält bereits alle notwendigen Dateien:
 * `build` – Hauptskript, das den gesamten Prozess automatisch durchführt
 * `preseed.cfg` – Konfigurationsdatei für die automatische Installation
 * `inject.py` – Python-Skript zur Injektion der `preseed.cfg` in die `initrd`
+* `grub.cfg` – Eigene GRUB-Konfiguration mit zwei Einträgen: automatische und manuelle Installation
 
 ### 2. Benötigte Werkzeuge installieren
 
@@ -45,7 +46,7 @@ Das Skript führt automatisch folgende Schritte durch:
 1. **Download** – Lädt das offizielle Debian netinst ISO herunter (sofern noch nicht vorhanden)
 2. **Extraktion** – Extrahiert die originale `initrd.gz` aus dem ISO
 3. **Injektion** – Fügt die `preseed.cfg` via `inject.py` in die `initrd` ein
-4. **ISO-Bau** – Erstellt das fertige, bootfähige `debian-preseed.iso`
+4. **ISO-Bau** – Erstellt das fertige, bootfähige `debian-preseed.iso` mit der eigenen `grub.cfg`
 
 Nach erfolgreichem Durchlauf liegt die Datei `debian-preseed.iso` im aktuellen Verzeichnis bereit.
 
@@ -64,7 +65,9 @@ Nach erfolgreichem Durchlauf liegt die Datei `debian-preseed.iso` im aktuellen V
 1. Schließe das **LAN-Kabel** an den Dell-Laptop an (wird für den Paket-Download benötigt).
 2. Stecke den USB-Stick ein, starte den Laptop und drücke mehrfach **F12**, um ins Boot-Menü zu gelangen.
 3. Wähle deinen USB-Stick aus.
-4. Navigiere im blauen Debian-Menü auf **Advanced options** → **Automated install**.
+4. Das GRUB-Menü zeigt zwei Einträge:
+   - **Automated Install** – startet nach 5 Sekunden automatisch und führt die vollautomatische Installation durch
+   - **Normal Install** – startet den interaktiven Debian-Installer ohne Vorbelegung
 
 Die Installation läuft ab diesem Punkt vollautomatisch durch. Es sind keine weiteren Eingaben notwendig.
 
