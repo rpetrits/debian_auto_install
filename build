@@ -1,41 +1,65 @@
 #!/bin/sh
 
-# Dynamisch das aktuelle Verzeichnis nutzen, in dem das Skript gestartet wurde
 WORK_DIR=$(pwd)
-ISO_NAME="debian-13.5.0-amd64-netinst.iso"
-ISO_URL="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/$ISO_NAME"
 OUTPUT_ISO="debian-preseed.iso"
+MIRROR_URL="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd"
+
+# Aufräumen bei Fehler oder Abbruch
+cleanup() {
+    rm -f initrd.gz initrd_master.gz
+}
+trap cleanup EXIT
 
 echo "================================================="
 echo " Start: Automatische Erstellung des Preseed-ISOs"
 echo "================================================="
 
-# 1. Prüfen, ob das originale Debian-ISO existiert, ansonsten herunterladen
-if [ ! -f "$ISO_NAME" ]; then
-    echo "[1/4] Originales Debian-ISO nicht gefunden. Starte Download..."
-    curl -L -O "$ISO_URL" || { echo "FEHLER: Download fehlgeschlagen!"; exit 1; }
-else
-    echo "[1/4] Originales Debian-ISO ist bereits vorhanden. Überspringe Download."
+# 1. Aktuellen ISO-Dateinamen vom Debian-Mirror ermitteln
+echo "[1/4] Ermittle aktuellen Debian netinst ISO-Namen..."
+ISO_NAME=$(curl -s "$MIRROR_URL/" \
+    | grep -o 'debian-[0-9][^"]*-amd64-netinst\.iso' \
+    | grep -v '\.' \
+    | head -1)
+
+# Fallback: direkt die SHA256SUMS-Datei parsen
+if [ -z "$ISO_NAME" ]; then
+    ISO_NAME=$(curl -s "$MIRROR_URL/SHA256SUMS" \
+        | grep 'netinst' \
+        | grep -o 'debian-[^ ]*\.iso' \
+        | head -1)
 fi
 
-# 2. initrd.gz aus dem ISO extrahieren
-echo "[2/4] Extrahiere initrd.gz aus dem ISO..."
+if [ -z "$ISO_NAME" ]; then
+    echo "FEHLER: Konnte aktuellen ISO-Namen nicht ermitteln!"
+    exit 1
+fi
+
+echo "    -> Aktuelles ISO: $ISO_NAME"
+
+# 2. ISO herunterladen falls nicht vorhanden oder veraltet
+if [ ! -f "$ISO_NAME" ]; then
+    echo "[2/4] ISO nicht gefunden. Starte Download..."
+    curl -L -O "$MIRROR_URL/$ISO_NAME" \
+        || { echo "FEHLER: Download fehlgeschlagen!"; exit 1; }
+else
+    echo "[2/4] ISO ist bereits vorhanden. Überspringe Download."
+fi
+
+# 3. initrd.gz aus dem ISO extrahieren und preseed.cfg injizieren
+echo "[3/4] Extrahiere initrd.gz und injiziere preseed.cfg..."
 xorriso -osirrox on -indev "$ISO_NAME" \
     -extract /install.amd/initrd.gz ./initrd.gz \
     || { echo "FEHLER: Extraktion fehlgeschlagen!"; exit 1; }
 
 chmod +w initrd.gz
 
-# 3. preseed.cfg via inject.py in die initrd injizieren
-echo "[3/4] Führe inject.py aus..."
-if [ -f "inject.py" ]; then
-    python3 inject.py || { echo "FEHLER: inject.py wurde mit Fehlern abgebrochen!"; exit 1; }
-else
-    echo "FEHLER: 'inject.py' wurde im aktuellen Verzeichnis nicht gefunden!"
+if [ ! -f "inject.py" ]; then
+    echo "FEHLER: 'inject.py' nicht gefunden!"
     exit 1
 fi
+python3 inject.py || { echo "FEHLER: inject.py wurde mit Fehlern abgebrochen!"; exit 1; }
 
-# 4. Neues ISO bauen: initrd und grub.cfg aus dem Repo einbetten
+# 4. Neues ISO bauen
 echo "[4/4] Erstelle das modifizierte ISO mit xorriso..."
 rm -f "$OUTPUT_ISO"
 
@@ -47,9 +71,6 @@ xorriso \
   -map initrd_master.gz /install.amd/initrd.gz \
   -map grub.cfg /boot/grub/grub.cfg \
   || { echo "FEHLER: xorriso konnte das ISO nicht bauen!"; exit 1; }
-
-# Aufräumen: Temporäre Dateien löschen
-rm -f initrd.gz initrd_master.gz
 
 echo "================================================="
 echo " FERTIG! Dein Image liegt bereit unter:"
