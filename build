@@ -18,17 +18,15 @@ else
     echo "[1/4] Originales Debian-ISO ist bereits vorhanden. Überspringe Download."
 fi
 
-# 2. Benötigte Dateien aus dem ISO extrahieren und beschreibbar machen
-echo "[2/4] Extrahiere initrd.gz, grub.cfg und isolinux.cfg aus dem ISO..."
+# 2. initrd.gz aus dem ISO extrahieren
+echo "[2/4] Extrahiere initrd.gz aus dem ISO..."
 xorriso -osirrox on -indev "$ISO_NAME" \
     -extract /install.amd/initrd.gz ./initrd.gz \
-    -extract /boot/grub/grub.cfg ./grub.cfg \
-    -extract /isolinux/isolinux.cfg ./isolinux.cfg \
     || { echo "FEHLER: Extraktion fehlgeschlagen!"; exit 1; }
 
-chmod +w initrd.gz grub.cfg isolinux.cfg
+chmod +w initrd.gz
 
-# 3. inject.py ausführen: preseed.cfg injizieren + grub.cfg + isolinux.cfg patchen
+# 3. preseed.cfg via inject.py in die initrd injizieren
 echo "[3/4] Führe inject.py aus..."
 if [ -f "inject.py" ]; then
     python3 inject.py || { echo "FEHLER: inject.py wurde mit Fehlern abgebrochen!"; exit 1; }
@@ -37,7 +35,7 @@ else
     exit 1
 fi
 
-# 4. Altes Ausgabe-ISO löschen, falls vorhanden, und neu bauen
+# 4. Neues ISO bauen: initrd und grub.cfg aus dem Repo einbetten
 echo "[4/4] Erstelle das modifizierte ISO mit xorriso..."
 rm -f "$OUTPUT_ISO"
 
@@ -48,11 +46,10 @@ xorriso \
   -boot_image any replay \
   -map initrd_master.gz /install.amd/initrd.gz \
   -map grub.cfg /boot/grub/grub.cfg \
-  -map isolinux.cfg /isolinux/isolinux.cfg \
   || { echo "FEHLER: xorriso konnte das ISO nicht bauen!"; exit 1; }
 
 # Aufräumen: Temporäre Dateien löschen
-rm -f initrd.gz initrd_master.gz grub.cfg isolinux.cfg
+rm -f initrd.gz initrd_master.gz
 
 echo "================================================="
 echo " FERTIG! Dein Image liegt bereit unter:"
